@@ -1,0 +1,140 @@
+#!/bin/bash
+
+#    Copyright (C) 2010 Saar <@saar at identi.ca> 
+#
+#    This program is free software; you can redistribute it and/or
+#    modify it under the terms of the GNU General Public License as
+#    published by the Free Software Foundation; either version 2 of
+#    the License or (at your option) version 3 or any later version.
+#
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, see http://www.gnu.org/licenses/
+
+
+SOURCE="Dentinal"
+##if you want, comment or change these lines
+LAT="29.653374"
+LONG="52.505379"
+
+##if want to save username [and password] uncomment below lines and replace with your username and password
+#USERNAME="username"
+#PASSWORD="password"
+
+
+##Requirements
+#curl
+
+##Options
+#libnotify-bin
+
+function usage {
+    echo "Usage: $0 [-i image] [-s source] [-u user] [-p password] [-t latitude -g longitude] [-r in_reply_to_status_id] [-x proxyhost:port] dent"
+    exit 1
+}
+function showMessage {
+  if [ -x /usr/bin/notify-send ]
+  then  
+    notify-send "$2" "$1"
+  else
+    echo "$MESSAGE"
+  fi
+}
+while getopts i:s:u:p:r:t:g:x: opt ; do
+  case "$opt" in
+    i)	IMAGE="$OPTARG";;
+    s)	SOURCE="$OPTARG";;
+    u)	USERNAME="$OPTARG";;
+    p)	PASSWORD="$OPTARG";;
+    r)	REPID="$OPTARG";;
+    t)	LAT="$OPTARG";;
+    g)	LONG="$OPTARG";;
+    x)	PROXY="$OPTARG";;
+    \?) usage;;
+  esac
+done
+shift $[OPTIND -1]
+STATUS="$*"
+STATUS=`echo "$STATUS" | sed 's/@/\&\#64\;/g'`
+
+ARGS=( )
+
+if [  -n "$USERNAME" ] 
+then
+  N="${#ARGS[@]}"
+  ARGS[N]="-u"
+  if [ -n "$PASSWORD" ]
+  then
+    ARGS[N+1]="$USERNAME:$PASSWORD"
+  else
+    ARGS[N+1]="$USERNAME"
+  fi
+else
+  showMessage "Username required!" "Error"
+  exit 2;
+fi
+
+if [ -n "$STATUS" ]
+then
+  N="${#ARGS[@]}"
+  ARGS[N]="-F"
+  ARGS[N+1]="status=$STATUS"
+else
+  usage
+fi
+
+if [ -n "$IMAGE" ]
+then
+  N="${#ARGS[@]}"
+  ARGS[N]="-F"
+  ARGS[N+1]="media=@$IMAGE"
+fi
+
+if [ -n "$SOURCE" ]
+then
+  N="${#ARGS[@]}"
+  ARGS[N]="-F"
+  ARGS[N+1]="source=$SOURCE"
+fi
+
+if [ -n "$REPID"  ]
+then
+  N="${#ARGS[@]}"
+  ARGS[N]="-F"
+  ARGS[N+1]="in_reply_to_status_id=$REPID"
+fi
+
+if [ -n "$PROXY"  ]
+then
+  N="${#ARGS[@]}"
+  ARGS[N]="-x"
+  ARGS[N+1]="$PROXY"
+fi
+
+if [ -n "$LAT" -a -n "$LONG" ]
+then
+  N="${#ARGS[@]}"
+  ARGS[N]="-F"
+  ARGS[N+1]="lat=$LAT"
+  ARGS[N+2]="-F"
+  ARGS[N+3]="long=$LONG"
+fi
+TEMP=`mktemp` 
+
+CODE=`curl -o "$TEMP" -w "%{http_code}" "${ARGS[@]}"  http://identi.ca/api/statuses/update.xml`
+if [ "$CODE" == "200" ]
+then
+  ID=`cat "$TEMP" | grep -o -m 1 "<id>[^<]*</id>" | sed  's/<id>\([^<]*\)<\/id>/\1/'`
+  NAME=`cat "$TEMP" | grep -o -m 1 "<name>[^<]*</name>" | sed  's/<name>\([^<]*\)<\/name>/\1/'`
+  MESSAGE="$NAME, '$STATUS' was submitted successfully. http://identi.ca/notice/$ID" 
+  showMessage "$MESSAGE" "Success"
+else
+  MESSAGE=`cat "$TEMP" | grep -o -m 1 "<error>[^<]*</error>" | sed  's/<error>\([^<]*\)<\/error>/\1/'`
+  showMessage "$MESSAGE" "Error"
+fi
+rm "$TEMP"
