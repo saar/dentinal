@@ -1,0 +1,157 @@
+#!/bin/bash
+
+#    Copyright (C) 2010 Saar <@saar at identi.ca> 
+#
+#    This program is free software; you can redistribute it and/or
+#    modify it under the terms of the GNU General Public License as
+#    published by the Free Software Foundation; either version 2 of
+#    the License or (at your option) version 3 or any later version.
+#
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, see http://www.gnu.org/licenses/
+
+##if want to save username [and password] uncomment below lines and replace with your username and password
+#USERNAME="username"
+#PASSWORD="password"
+
+##Requirements
+#xmlstarlet
+
+##Options
+#libnotify-bin
+
+XML="/usr/bin/xmlstarlet"
+TAB="    "
+function usage {
+    echo "Usage: $0 [-c <command>]"
+    echo "where <command> is one of:"
+    echo -e "* p\n\tReturns the 20 most recent statuses from non-protected users who have set a custom user icon.\n"
+    echo -e "  h\t-u user [-p password] [-s since_id] [-m max_id] [-o count] [-g page] \n\tReturns the 20 most recent statuses, including retweets, posted by the authenticating user and that user's friends.\n"
+    echo -e "  f\t-u user [-p password] [-s since_id] [-m max_id] [-o count] [-g page] \n\tReturns the 20 most recent statuses posted by the authenticating user and that user's friends.\n"
+    echo -e "  u\t-u user [-p password] [-i id] [-s since_id] [-m max_id] [-o count] [-g page] \n\tReturns the 20 most recent statuses posted from the authenticating user. It's also possible to request another user's timeline via the id parameter.\n"
+    echo -e "  r\t-u user [-p password] [-i id] [-s since_id] [-m max_id] [-o count] [-g page] \n\tReturns the 20 most recent mentions (status containing @username) for the authenticating user.\n"
+    exit 1
+}
+
+function showMessage {
+  if [ -x /usr/bin/notify-send ]
+  then  
+    notify-send "$2" "$1"
+  else
+    echo "$1"
+  fi
+}
+
+function parseXML {
+  HORIZONTAL_LINE="___________________________________"
+  echo -e "\n ID $TAB   By"
+  echo  $HORIZONTAL_LINE
+  $XML sel -t -m "statuses/status" -o " " -v "id" -o " $TAB " -v "user/screen_name" -n -o " " -v "text" -n -o "$HORIZONTAL_LINE" -n $1
+}
+
+function addGetArgs {
+  if [ -z "$GETARGS" ]
+  then
+    GETARGS="?"
+  else
+    GETARGS="$GETARGS""&"
+  fi
+  GETARGS="$GETARGS""$1""=""$2"
+}
+
+if [ ! -x "$XML" ]
+then
+  echo "\"xmlstarlet\" was required but not found."
+  echo "Please install it and then use this script."
+  exit 1;
+fi
+
+if [ -z "$1" ]
+then
+  CMD="p"
+fi
+while getopts s:u:p:m:o:g:i:c: opt ; do
+  case "$opt" in
+    s)	SINCE_ID="$OPTARG";;
+    u)	USERNAME="$OPTARG";;
+    p)	PASSWORD="$OPTARG";;
+    m)	MAX_ID="$OPTARG";;
+    o)	COUNT="$OPTARG";;
+    g)	PAGE="$OPTARG";;
+    i)	ID="$OPTARG";;
+    c)	CMD="$OPTARG";;
+    \?) usage;;
+  esac
+done
+shift $[OPTIND -1]
+case "$CMD" in
+  p)	URL="http://identi.ca/api/statuses/public_timeline.xml" ; AUT="0";;
+  h)	URL="http://identi.ca/api/statuses/home_timeline.xml" ; AUT="1";;
+  f)	URL="http://identi.ca/api/statuses/friends_timeline.xml" ; AUT="1" ;;
+  u)	URL="http://identi.ca/api/statuses/user_timeline.xml" ; AUT="1";;
+  r)	URL="http://identi.ca/api/statuses/mentions.xml" ; AUT="1";;
+  \?)	usage;;
+esac
+
+ARGS=( )
+
+if [ "$AUT" == "1" -a   -n "$USERNAME" ] 
+then
+  N="${#ARGS[@]}"
+  ARGS[N]="-u"
+  if [ -n "$PASSWORD" ]
+  then
+    ARGS[N+1]="$USERNAME:$PASSWORD"
+  else
+    ARGS[N+1]="$USERNAME"
+  fi
+elif [ "$AUT" == "1" ]
+then
+  showMessage "Username required!" "Error"
+  exit 2;
+fi
+
+
+if [ -n "$SINCE_ID" ]
+then
+  addGetArgs "since_id" $SINCE_ID
+fi
+
+if [ -n "$MAX_ID" ]
+then
+  addGetArgs "max_id" $MAX_ID
+fi
+
+if [ -n "$COUNT" ]
+then
+  addGetArgs "count" $COUNT
+fi
+
+if [ -n "$PAGE" ]
+then
+  addGetArgs "page" $PAGE
+fi
+
+if [ -n "$ID" ]
+then
+  addGetArgs "id" $ID
+fi
+
+TEMP=`mktemp` 
+
+CODE=`curl --compressed -s -o "$TEMP" -w "%{http_code}" "${ARGS[@]}" "$URL""$GETARGS"`
+if [ "$CODE" == "200" ]
+then
+  parseXML "$TEMP"
+  showMessage "Dents fetched successfull" "Success"
+else
+  MESSAGE=`cat "$TEMP" | grep -o -m 1 "<error>[^<]*</error>" | sed  's/<error>\([^<]*\)<\/error>/\1/'`
+  showMessage "$MESSAGE" "Error"
+fi
+rm "$TEMP"

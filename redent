@@ -1,0 +1,113 @@
+#!/bin/bash
+
+#    Copyright (C) 2010 Saar <@saar at identi.ca> 
+#
+#    This program is free software; you can redistribute it and/or
+#    modify it under the terms of the GNU General Public License as
+#    published by the Free Software Foundation; either version 2 of
+#    the License or (at your option) version 3 or any later version.
+#
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, see http://www.gnu.org/licenses/
+
+
+SOURCE="Dentinal"
+##if you want, comment or change these lines
+LAT="29.653374"
+LONG="52.505379"
+
+##if want to save username [and password] uncomment below lines and replace with your username and password
+#USERNAME="username"
+#PASSWORD="password"
+
+##Requirements
+#curl
+
+##Options
+#libnotify-bin
+
+function usage {
+    echo "Usage: $0 [-s source] [-u user] [-p password]  ID"
+    echo "Redent a dent."
+    exit 1
+}
+function showMessage {
+  if [ -x /usr/bin/notify-send ]
+  then  
+    notify-send "$2" "$1"
+  else
+    echo "$MESSAGE"
+  fi
+}
+while getopts s:u:p: opt ; do
+  case "$opt" in
+    s)	SOURCE="$OPTARG";;
+    u)	USERNAME="$OPTARG";;
+    p)	PASSWORD="$OPTARG";;
+    \?) usage;;
+  esac
+done
+shift $[OPTIND -1]
+ID="$*"
+
+ARGS=( )
+
+if [  -n "$USERNAME" ] 
+then
+  N="${#ARGS[@]}"
+  ARGS[N]="-u"
+  if [ -n "$PASSWORD" ]
+  then
+    ARGS[N+1]="$USERNAME:$PASSWORD"
+  else
+    ARGS[N+1]="$USERNAME"
+  fi
+else
+  showMessage "Username required!" "Error"
+  exit 2;
+fi
+
+if [ -z "$ID" ]
+then
+  usage
+fi
+
+
+if [ -n "$SOURCE" ]
+then
+  N="${#ARGS[@]}"
+  ARGS[N]="-F"
+  ARGS[N+1]="source=$SOURCE"
+fi
+
+if [ -n "$LAT" -a -n "$LONG" ]
+then
+  N="${#ARGS[@]}"
+  ARGS[N]="-F"
+  ARGS[N+1]="lat=$LAT"
+  ARGS[N+2]="-F"
+  ARGS[N+3]="long=$LONG"
+fi
+
+TEMP=`mktemp` 
+
+CODE=`curl -o "$TEMP" -w "%{http_code}" "${ARGS[@]}"  "http://identi.ca/api/statuses/retweet/$ID.xml"`
+if [ "$CODE" == "200" ]
+then
+  ID=`cat "$TEMP" | grep -o -m 1 "<id>[^<]*</id>" | sed  's/<id>\([^<]*\)<\/id>/\1/'`
+  NAME=`cat "$TEMP" | grep -o -m 1 "<name>[^<]*</name>" | sed  's/<name>\([^<]*\)<\/name>/\1/'`
+  STATUS=`cat "$TEMP" | grep -o -m 1 "<text>[^<]*</text>" | sed  's/<text>\([^<]*\)<\/text>/\1/'`
+  MESSAGE="$NAME, '$STATUS' was submitted successfully. http://identi.ca/notice/$ID" 
+  showMessage "$MESSAGE" "Success"
+else
+  MESSAGE=`cat "$TEMP" | grep -o -m 1 "<error>[^<]*</error>" | sed  's/<error>\([^<]*\)<\/error>/\1/'`
+  showMessage "$MESSAGE" "Error"
+fi
+cat "$TEMP"
+rm "$TEMP"
